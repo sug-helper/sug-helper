@@ -1,3 +1,6 @@
 streamlit
 pillow
-pytesseract
+easyocr
+torch
+torchvision
+numpy
