@@ -60,17 +60,17 @@ st.write("Upload screenshot → OCR → suggested Risk Type, Policy, Reasoning, 
 uploaded = st.file_uploader("Upload an image (JPG/PNG)", type=["jpg", "jpeg", "png"])
 col_flags = st.columns(2)
 with col_flags[0]:
-    minors = st.toggle("Potential minors", value=False)
+    minors = st.toggle("Potential minors", value=False, help="Turn ON if you see any minors.")
 with col_flags[1]:
-    gore = st.toggle("Graphic gore", value=False)
+    gore = st.toggle("Graphic gore", value=False, help="Turn ON if you see gore/blood.")
 
 def copy_box(label, text):
-    st.text_area(label, text, height=120, key=label, help="Long-press to copy on phone")
-    st.button(f"📋 Copy {label}", on_click=lambda: st.session_state.setdefault("copied", True))
+    st.text_area(label, text, height=120, key=f"ta_{label}", help="Long-press to copy on phone")
+    st.button(f"📋 Copy {label}", key=f"btn_{label}")
 
 if uploaded:
     img = Image.open(uploaded).convert("RGB")
-    st.image(img, caption="Uploaded screenshot", use_column_width=True)
+    st.image(img, caption="Uploaded screenshot", use_container_width=True)
 
     # ----- OCR (EasyOCR) -----
     st.caption("Extracting text with EasyOCR… (first run may take a bit longer)")
@@ -91,18 +91,16 @@ if uploaded:
                 found.append(w)
 
     # surowsze ustawienia gdy minors/gore
-    if minors or gore:
-        default_risk = "Contextual Violation"
-    else:
-        default_risk = TEMPLATES[matched]["risk"]
-
+    risk = "Contextual Violation" if (minors or gore) else TEMPLATES[matched]["risk"]
     found_str = ", ".join(sorted(set(found))) if found else "no sensitive cues"
     tpl = TEMPLATES[matched]
 
     # ----- Wyniki -----
     st.subheader("Classification Result")
-    risk = default_risk
-    policy = tpl["policy"]
+    st.markdown(f"**Detected Category:** {matched}")
+    st.markdown(f"**Risk Type:** {risk}")
+    st.markdown(f"**Policy:** {tpl['policy']}")
+
     reasoning = tpl["reasoning"].format(keywords=found_str)
     context = ""
     if minors:
@@ -112,13 +110,8 @@ if uploaded:
     if not context:
         context = tpl["context"]
 
-    st.markdown(f"**Detected Category:** {matched}")
-    st.markdown(f"**Risk Type:** {risk}")
-    st.markdown(f"**Policy:** {policy}")
-
     copy_box("Reasoning", reasoning)
     copy_box("Context", context)
 
 else:
     st.info("Upload a screenshot to start.")
-    
