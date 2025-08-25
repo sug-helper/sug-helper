@@ -1,8 +1,11 @@
 import streamlit as st
 from PIL import Image
-import pytesseract
+import numpy as np
+import easyocr
 
-# --- Szablony Reasoning/Context ---
+st.set_page_config(page_title="SUG Helper", page_icon="📸", layout="centered")
+
+# ---------- SZABLONY ----------
 TEMPLATES = {
     "Sexual": {
         "risk": "Non-violation with Risky Video Cover",
@@ -13,7 +16,7 @@ TEMPLATES = {
     "Violence": {
         "risk": "Contextual Violation",
         "policy": "Violent",
-        "reasoning": "The video includes indications of violence ({keywords}). Content implies harm/injury; classified under Violent policy per SOP.",
+        "reasoning": "The content includes indications of violence ({keywords}). Content implies harm/injury; classified under Violent policy per SOP.",
         "context": "No graphic gore observed; decision based on violent cues in text/thumbnail."
     },
     "Non-Violation": {
@@ -26,7 +29,7 @@ TEMPLATES = {
         "risk": "Contextual Violation",
         "policy": "Hateful / Derogatory",
         "reasoning": "Captions/covers contain derogatory or hateful phrasing ({keywords}). Classified under Hateful/Derogatory policy.",
-        "context": "Assessment based on visible hateful language; no minors or sexual context."
+        "context": "Assessment based on visible hateful language; no sexual context."
     },
     "Drugs": {
         "risk": "Contextual Violation",
@@ -42,46 +45,80 @@ TEMPLATES = {
     }
 }
 
-# --- Słowa-klucze ---
 KEYWORDS = {
     "Sexual": ["sex", "ass", "sat on his face", "booty", "nudes", "onlyfans", "kiss", "nsfw"],
     "Violence": ["fight", "hit", "punch", "kill", "blood", "knife", "shoot", "attack"],
-    "Hate": ["slur", "racist", "hate", "nazi", "faggot", "bitch", "stupid", "retard"],
+    "Hate": ["slur", "racist", "hate", "nazi", "faggot", "bitch", "retard", "stupid"],
     "Drugs": ["weed", "cocaine", "heroin", "ecstasy", "mdma", "meth", "drug", "smoke"],
     "Self-harm": ["suicide", "cut", "kill myself", "end it", "jump", "hang", "self harm"]
 }
 
-# --- App UI ---
+# ---------- UI ----------
 st.title("📸 SUG Helper – Auto Classification")
-st.write("Upload screenshot → get Risk Type, Policy, Reasoning, Context")
+st.write("Upload screenshot → OCR → suggested Risk Type, Policy, Reasoning, Context")
 
-uploaded = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"])
+uploaded = st.file_uploader("Upload an image (JPG/PNG)", type=["jpg", "jpeg", "png"])
+col_flags = st.columns(2)
+with col_flags[0]:
+    minors = st.toggle("Potential minors", value=False)
+with col_flags[1]:
+    gore = st.toggle("Graphic gore", value=False)
+
+def copy_box(label, text):
+    st.text_area(label, text, height=120, key=label, help="Long-press to copy on phone")
+    st.button(f"📋 Copy {label}", on_click=lambda: st.session_state.setdefault("copied", True))
 
 if uploaded:
-    img = Image.open(uploaded)
-    st.image(img, caption="Uploaded Screenshot", use_column_width=True)
+    img = Image.open(uploaded).convert("RGB")
+    st.image(img, caption="Uploaded screenshot", use_column_width=True)
 
-    # OCR
-    text = pytesseract.image_to_string(img).lower()
+    # ----- OCR (EasyOCR) -----
+    st.caption("Extracting text with EasyOCR… (first run may take a bit longer)")
+    reader = easyocr.Reader(["en"], gpu=False)  # CPU only
+    result = reader.readtext(np.array(img))
+    text = " ".join([t[1] for t in result]).lower()
+
     st.subheader("Extracted Text (OCR)")
-    st.write(text)
+    st.write(text if text.strip() else "_(no text found)_")
 
-    # Match category
-    matched_category = "Non-Violation"
-    found_keywords = []
+    # ----- Kategoryzacja -----
+    matched = "Non-Violation"
+    found = []
     for cat, words in KEYWORDS.items():
         for w in words:
             if w in text:
-                matched_category = cat
-                found_keywords.append(w)
+                matched = cat
+                found.append(w)
 
-    found_str = ", ".join(set(found_keywords)) if found_keywords else "no sensitive cues"
-    template = TEMPLATES[matched_category]
+    # surowsze ustawienia gdy minors/gore
+    if minors or gore:
+        default_risk = "Contextual Violation"
+    else:
+        default_risk = TEMPLATES[matched]["risk"]
 
-    # Output
+    found_str = ", ".join(sorted(set(found))) if found else "no sensitive cues"
+    tpl = TEMPLATES[matched]
+
+    # ----- Wyniki -----
     st.subheader("Classification Result")
-    st.write(f"**Risk Type:** {template['risk']}")
-    st.write(f"**Policy:** {template['policy']}")
-    st.write(f"**Reasoning:** {template['reasoning'].format(keywords=found_str)}")
-    st.write(f"**Context:** {template['context']}")
-  
+    risk = default_risk
+    policy = tpl["policy"]
+    reasoning = tpl["reasoning"].format(keywords=found_str)
+    context = ""
+    if minors:
+        context += "Potential minors observed. Escalate per SOP. "
+    if gore:
+        context += "Graphic gore present. Escalate per SOP. "
+    if not context:
+        context = tpl["context"]
+
+    st.markdown(f"**Detected Category:** {matched}")
+    st.markdown(f"**Risk Type:** {risk}")
+    st.markdown(f"**Policy:** {policy}")
+
+    copy_box("Reasoning", reasoning)
+    copy_box("Context", context)
+
+else:
+    st.info("Upload a screenshot to start.")
+    
